@@ -66,12 +66,22 @@ translated from spec.
   SIXpack has no acknowledgements to catch a damaged frame. Remote URLs use
   bliss.comm.
 
-- **Programming.** When an axis initialises, the controller programs its
-  currents, speeds, $15 flags (`home_method`, spec's 16-bit encoding),
-  reference-search parameters and null offset. All motors must be stopped,
-  otherwise it refuses. It then programs them again after detecting a unit
-  reset, checking the reset flag at most every `check_interval` seconds,
-  like spec.
+- **Programming.** When an axis initialises, the controller programs it; all
+  motors must be stopped, otherwise it refuses. By default
+  (`program_parameters: true`) that is the currents, speeds, $15 flags
+  (`home_method`, spec's 16-bit encoding), reference-search parameters and
+  null offset. With `program_parameters: false` it sends only what spec
+  sends: the clock divider ($12), the stop limits ($31) and the speeds
+  ($13/$14), and the unit keeps its own power-on settings. The controller
+  programs the axes again after detecting a unit reset, checking the reset
+  flag at most every `check_interval` seconds, like spec.
+- **Lost replies.** A query that gets no reply or a garbled one is asked again
+  up to twice, on an emptied input buffer, and logged. Commands are never
+  repeated, so a move is never sent twice. $43 is not simply asked again,
+  because reading it clears the reset flag: after a lost $43 reply the
+  controller reads it once more and also checks the positions, since a reset
+  puts every motor at 0. A motor that was elsewhere and now reads 0 is
+  treated as reset (positions lost).
 - **Lost positions.** After a reset the axes report `READY | POSLOST`. Moves
   and jogs are refused until the axis is homed (`axis.home()`, the unit's
   reference search) or its dial is set. The state is not FAULT because Bliss
@@ -88,28 +98,39 @@ translated from spec.
   reported as LIMNEG/LIMPOS in the direction of the move, so the move raises
   `AxisOnLimitError`. With `ignore_limits: true` (spec's
   `disable_limit_checks`) it is only logged.
-- **Homing** uses the unit's reference search. Its direction comes from
-  `home_method` (NullLeft), not from `home(±1)`. `stop_after_search: true`
-  (the default here) stays at the reference point. spec's default 0 would
-  drive back to the old position number.
+- **Homing** uses the unit's reference search. Its direction comes from the
+  `home_method` flags, not from `home(±1)`. `stop_after_search: true` (the
+  driver's default) stays at the reference point; the unit's default (false)
+  drives back to the old position number. With `program_parameters: false`
+  the unit's own reference settings apply.
 - **Not supported:** `hw_limit()` (the unit has no limit search),
   `axis.on()`/`off()`, the PI controller, and trajectories.
 
 Custom commands: `axis.trinamic_inputs()` and `axis.trinamic_supply()`.
 `raw_write_read("20 02 00")` takes hex bytes (command, P0..) and returns P0..P6.
 
-## Before first use on the XRD-3003TT
+## On the XRD-3003TT
 
-1. **Confirm the parameters.** The controller programs the values in the YAML
-   at start-up. They are spec's documented defaults, because spec's config
-   sets none. In spec, run `motor_par(m1,"dump")`, and the same for a1 and a2,
-   then copy any difference into the YAML, especially the currents and
-   `home_method`.
-2. **Read-only check.** Quit spec, then run
-   `python examples/check_readonly.py /dev/ttyS9`. It shows the reply format,
-   the supply voltage, and the positions as dial values. These must match
-   spec's `wm m1 a1 a2` dial positions.
-3. **First moves.** Start Bliss and make small moves of each axis on its own.
+Since October 2026 the controller runs the monochromator `m1` and the two
+absorber wheels `a1` and `a2` (one SIXpack 2, firmware 1.66, RS232 at
+19200 baud). Confirmed there:
+
+- **Replies are 9 bytes**, with the response address first.
+- **Positions** are the unit's microstep counter; dial = steps / steps_per_unit
+  matched spec's dial values.
+- **spec sends very little.** A debug capture of spec showed only $40 (baud
+  rate) and $31 (stop limits 0/1024) at start-up, $12 (clock divider 23) and,
+  per move, $13/$14 (speeds) and $23. The unit otherwise runs on its power-on
+  settings, $15 flags 0x0AA0. spec's `motor_par dump` shows 0x60D0 instead,
+  which is not what the unit uses: programming those flags made `a2` stop
+  between wheel positions, in Bliss and afterwards in spec. The XRD config
+  therefore uses `program_parameters: false` and `clkdiv: 23`.
+- **Absorber backlash.** A backlash move to wheel position 1 overshoots below 1,
+  so the low limit of `a1` and `a2` is 1 minus the backlash (0.984375).
+
+`examples/check_readonly.py /dev/ttyS9` (with spec and Bliss stopped) shows
+the reply format, the supply voltage and the positions as dial values, without
+moving anything.
 
 ## Tests
 
@@ -129,11 +150,10 @@ python -m unittest discover -s tests
 
 ## Not yet verified on hardware
 
-- The reply format (8 or 9 bytes). Both are handled.
-- Whether a stop condition during a move needs anything beyond reading the
-  stop flag. StopNoRef is set in spec's default `home_method`, so the unit
-  does not start an automatic reference search.
-- The deceleration of $25 with velocity 0, and $23 ending a rotation. These
-  come from the manual's text.
-- That spec's positions are the unit's microstep counter, with dial =
-  steps / steps_per_unit. The read-only check confirms this.
+These come from the manual's text and are tested only against the simulator:
+
+- homing (the reference search) and jogging: the deceleration of $25 with
+  velocity 0, and $23 ending a rotation;
+- a stop condition during a move;
+- detecting a real power cycle of the unit, and the retries after lost or
+  garbled replies.
