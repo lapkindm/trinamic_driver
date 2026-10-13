@@ -1,0 +1,5 @@
+__pycache__/
+*.egg-info/
+docs/manual.txt
+# manufacturer manuals: copyrighted, kept on the instrument PC only
+docs/

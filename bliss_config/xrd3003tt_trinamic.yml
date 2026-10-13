@@ -1,0 +1,115 @@
+# Trinamic SIXpack 2 (firmware 1.66, sn 5816, board 0) on /dev/ttyS9,
+# translated from the spec config:
+#   RS_TRINAMIC = /dev/ttyS9 19200          CONPAR:check_interval = 2
+#   MOT006 = TRINAMIC:0/0/2  5400 1  5400 200 50 125  m1  Mono
+#   MOT007 = TRINAMIC:0/0/0  3200 1 12800 200 50 125  a1  A_Cu  (disable_limit_checks)
+#   MOT008 = TRINAMIC:0/0/1  3200 1 12800 200 50 125  a2  A_Mo  (disable_limit_checks)
+# spec motor address unit/module/channel: unit 0 = this controller, module 0 =
+# board address (rotary switches), channel = motor 0..5.
+# Same formulas as Bliss spec2yml:
+#   steps_per_unit = steps (spec sign is +1 for all three)   velocity = slew / |steps|
+#   acceleration   = velocity / (accel/1000)   (spec accel is a ramp time, 125 ms)
+#   backlash       = backl / |steps|     base_velocity = base / |steps|
+#
+# a1/a2 are absorber wheels: 1 unit = 1 absorber position (3200 steps), with
+# positions 1..6 used by spec's autoabsorber (A[a1] == 6 is the thickest).
+#
+# What spec really sends (debug captures of `reconfig` and `mv a2`, 2026-10-06):
+#   $12 clock divider 23; per motor $31 stop limits 0 / 1024 (analogue stop off);
+#   per move $13/$14 speeds and $23 target. Never $10/$11 (currents), $15 (motor
+#   flags), $16, $18: the unit runs on its POWER-ON DEFAULTS for those, which
+#   is what spec's `motor_par dump` shows, except home_method: the dump says
+#   0x60D0 but the unit's default is 0x0AA0 (DelayTestNull|NullCenter|
+#   FilterSwitch|FastRef). With 0x60D0 (StopNull), downward moves of the absorber
+#   wheels stop in the reference-switch region near position 6, which is
+#   why Bliss sends only what spec sends (program_parameters: false).
+# The values below the speeds are the unit's power-on defaults, kept for
+# documentation; they are not sent.
+# Limits: DIAL limits from spec's `wm m1 a1 a2` (2026-10-06).
+
+- plugin: generic
+  class: Trinamic
+  package: trinamic_driver.bliss_trinamic
+  name: trinamic_xrd
+  serial:
+    url: /dev/ttyS9
+    baudrate: 19200
+  module: 0                       # board address
+  clkdiv: 23                      # global clock divider, as spec ($12 0x17)
+  program_parameters: false       # send only what spec sends (see header)
+  check_interval: 2               # s; detect a power cycle (re-programs, positions lost)
+
+  axes:
+    - name: m1                    # MOT006 TRINAMIC:0/0/2  "Mono"
+      channel: 2
+      steps_per_unit: 5400
+      velocity: 1.0               # 5400 steps/s
+      acceleration: 8.0
+      base_velocity: 0.037037     # 200 steps/s
+      backlash: 0.00926           # 50 steps
+      low_limit: -1.6287            # dial, spec wm
+      high_limit: 14.3713
+      stop_limits: [0, 1024]      # $31 as spec: analogue stop off
+      # unit power-on defaults, not sent:
+      peak_current: 50            # %
+      acceleration_current: 100   # % of peak
+      running_current: 75
+      standing_current: 50
+      power_down_current: 0
+      power_down_delay: 1000      # ms
+      home_method: 0x0AA0         # DelayTestNull|NullCenter|FilterSwitch|FastRef (unit default)
+      pos_limit: 6400
+      debouncing_time: 22         # ms
+      null_offset: 0
+      test_null_range: 240
+      stop_after_search: false    # unit default
+
+    - name: a1                    # MOT007 TRINAMIC:0/0/0  "A_Cu" absorber wheel
+      channel: 0
+      steps_per_unit: 3200
+      velocity: 4.0               # 12800 steps/s
+      acceleration: 32.0          # limited by the unit to amax <= 64*vstart
+      base_velocity: 0.0625       # 200 steps/s
+      backlash: 0.015625          # 50 steps
+      low_limit: 0.984375     # dial: spec wm 1.0 minus the backlash (50 steps), so a move down to 1 is allowed
+      high_limit: 6
+      ignore_limits: true         # spec disable_limit_checks
+      stop_limits: [0, 1024]
+      # unit power-on defaults, not sent:
+      peak_current: 50
+      acceleration_current: 100
+      running_current: 75
+      standing_current: 50
+      power_down_current: 0
+      power_down_delay: 1000
+      home_method: 0x0AA0
+      pos_limit: 6400
+      debouncing_time: 22
+      null_offset: 0
+      test_null_range: 240
+      stop_after_search: false
+
+    - name: a2                    # MOT008 TRINAMIC:0/0/1  "A_Mo" absorber wheel
+      channel: 1
+      steps_per_unit: 3200
+      velocity: 4.0
+      acceleration: 32.0
+      base_velocity: 0.0625
+      backlash: 0.015625
+      low_limit: 0.984375     # dial: spec wm 1.0 minus the backlash (50 steps), so a move down to 1 is allowed
+      high_limit: 6
+      ignore_limits: true
+      stop_limits: [0, 1024]
+      # unit power-on defaults, not sent:
+      peak_current: 50            # shared with a1 (channels 0+1)
+      acceleration_current: 100
+      running_current: 75
+      standing_current: 50
+      power_down_current: 0
+      power_down_delay: 1000
+      home_method: 0x0AA0
+      pos_limit: 6400
+      debouncing_time: 22
+      null_offset: 0
+      test_null_range: 240
+      stop_after_search: false
