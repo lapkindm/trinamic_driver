@@ -43,6 +43,7 @@
     - name: m1                    # MOT006 TRINAMIC:0/0/2  "Mono"
       channel: 2
       steps_per_unit: 5400
+      unit: deg
       velocity: 1.0               # 5400 steps/s
       acceleration: 8.0
       base_velocity: 0.037037     # 200 steps/s
