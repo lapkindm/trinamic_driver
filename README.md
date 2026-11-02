@@ -79,9 +79,13 @@ translated from spec.
   up to twice, on an emptied input buffer, and logged. Commands are never
   repeated, so a move is never sent twice. $43 is not simply asked again,
   because reading it clears the reset flag: after a lost $43 reply the
-  controller reads it once more and also checks the positions, since a reset
-  puts every motor at 0. A motor that was elsewhere and now reads 0 is
-  treated as reset (positions lost).
+  controller asks again up to `unit_info_retries` times (default 5),
+  `unit_info_pause` seconds apart (default 1), and also checks the positions,
+  since a reset puts every motor at 0. A motor that was elsewhere and now
+  reads 0 is treated as reset (positions lost). The pause is there because
+  the unit sometimes falls silent for a moment (on 2026-11-02 it missed two
+  $43 queries 0.6 s apart and answered normally a few minutes later), which
+  used to stop a long scan series.
 - **Lost positions.** After a reset the axes report `READY | POSLOST`. Moves
   and jogs are refused until the axis is homed (`axis.home()`, the unit's
   reference search) or its dial is set. The state is not FAULT because Bliss
@@ -142,6 +146,8 @@ python -m unittest discover -s tests
 
 - **Unit tests** check frames against the manual's worked examples, the
   conversions, and the unit layer against a simulator (`tests/fake_sixpack.py`).
+  `tests/test_bliss_trinamic.py` (needs Bliss, no Beacon) checks the
+  controller's $43 retries and reset detection.
 - **End-to-end:** `tests/bliss_e2e.py` runs Bliss axes from the XRD config
   against the simulator, served on a pseudo-terminal by `tests/pty_sim.py`
   (setup in the docstring). It covers programming, moves, stop, jog, the

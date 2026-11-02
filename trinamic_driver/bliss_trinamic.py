@@ -11,6 +11,8 @@ the six motor channels. Example YAML::
       module: 0              # unit address (rotary switches)
       clkdiv: 5              # global clock divider (manual default)
       check_interval: 2      # s; check for a unit reset at most this often (0: off)
+      # unit_info_retries: 5 # $43 unanswered: ask again this often ...
+      # unit_info_pause: 1   # s ... this far apart, before giving up
       # timeout: 0.5         # s to wait for a reply
       # reply_length: 8      # 8 or 9; detected from the first reply if omitted
       axes:
@@ -198,6 +200,8 @@ class Trinamic(Controller):
         if not 0 <= self._clkdiv <= 31:
             raise ValueError(f"{self.name}: clkdiv must be 0..31")
         self._check_interval = cfg.get("check_interval", float, 2.0)
+        self._unit_info_retries = cfg.get("unit_info_retries", int, 5)
+        self._unit_info_pause = cfg.get("unit_info_pause", float, 1.0)
         # False: send only what spec sends (clock divider, speeds, stop limits)
         # and leave currents, motor flags ($15), reference search and null
         # offset at the unit's power-on defaults.
@@ -358,19 +362,35 @@ class Trinamic(Controller):
         through here and acts on it.
 
         If a reply is lost, the flag may have gone with it: ask again, and
-        also look for the other sign of a reset, motor positions back at 0."""
+        also look for the other sign of a reset, motor positions back at 0.
+        The unit sometimes falls silent for a moment (2026-11-02: no reply
+        twice within 0.6 s, fine again later; spec had the same), so it is
+        asked up to unit_info_retries more times, unit_info_pause apart."""
         try:
             info = self._pack.unit_info()
         except SixPackError as exc:
-            log_warning(self, "%s: no valid reply to $43 (%s); asking again and checking the positions",
-                        self.name, exc)
-            info = self._pack.unit_info()
+            info = self._unit_info_again(exc)
             if not info.reset and self._positions_look_reset():
                 info = replace(info, reset=True)
         self._last_check = time.monotonic()
         if info.reset:
             self._handle_reset()
         return info
+
+    def _unit_info_again(self, exc: SixPackError) -> UnitInfo:
+        retries = max(1, self._unit_info_retries)
+        for attempt in range(1, retries + 1):
+            log_warning(self, "%s: no valid reply to $43 (%s); asking again in %g s (%d/%d) and checking the positions",
+                        self.name, exc, self._unit_info_pause, attempt, retries)
+            gevent.sleep(self._unit_info_pause)
+            try:
+                info = self._pack.unit_info()
+            except SixPackError as again:
+                exc = again
+            else:
+                log_warning(self, "%s: $43 answered again (attempt %d)", self.name, attempt + 1)
+                return info
+        raise exc
 
     def _positions_look_reset(self) -> bool:
         """After a reset every motor position is 0: True if a motor that was

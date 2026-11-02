@@ -8,7 +8,8 @@ Test hooks: a frame for address ``SIM_ADDRESS`` is not a command but pokes the
 simulator: command 0x01 simulates a power cycle, 0x02 raises the stop
 condition on motor P0 (as if the reference switch acted as a limit), 0x04
 drops the next N replies (N = first parameter byte), 0x05 drops the next
-reply to $43 (the unit still clears its reset flag, as a lost reply would).
+N replies to $43 (N = first parameter byte, 0 counts as 1; the unit still
+clears its reset flag, as a lost reply would).
 """
 
 from __future__ import annotations
@@ -134,7 +135,7 @@ class FakeSixPack:
             elif cmd == SIM_DROP_REPLIES:
                 self.drop_next = p[0]
             elif cmd == SIM_DROP_UNIT_INFO:
-                self.drop_unit_info = 1
+                self.drop_unit_info = p[0] or 1
             elif cmd == SIM_STOP_CONDITION:
                 m = self.motors[p[0]]
                 m.stop_flag = True

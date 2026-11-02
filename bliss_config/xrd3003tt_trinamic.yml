@@ -38,6 +38,8 @@
   clkdiv: 23                      # global clock divider, as spec ($12 0x17)
   program_parameters: false       # send only what spec sends (see header)
   check_interval: 2               # s; detect a power cycle (re-programs, positions lost)
+  unit_info_retries: 5            # $43 unanswered: ask again up to 5 times ...
+  unit_info_pause: 1              # s ... 1 s apart, before stopping (unit fell silent briefly on 2026-11-02)
 
   axes:
     - name: m1                    # MOT006 TRINAMIC:0/0/2  "Mono"
